@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Numerics;
 
 namespace BluDex
 {
@@ -8,7 +10,7 @@ namespace BluDex
         [UiData(15336, "Untargetable")] Untargetable = 1 << 0,
         [UiData(15338, "Targets Self or Ally")] SelfOrAlly = 1 << 1,
         [UiData(15339, "Targets Enemy")] Enemy = 1 << 2,
-        [UiData(-1, "Targets Self, Ally, or Enemy")] SelfAllyOrEnemy = SelfOrAlly | Enemy,
+        [UiData(-1, "Targets Self, Ally, or Enemy", false)] SelfAllyOrEnemy = SelfOrAlly | Enemy,
     }
 
     internal enum SpellType
@@ -17,31 +19,34 @@ namespace BluDex
         [UiData(15054, "Magical")] Magic,
     }
 
+    [Flags]
     internal enum SpellAspect
     {
-        [UiData(16018, "Unaspected")] None,
-        [UiData(15535)] Blunt,
-        [UiData(15536)] Piercing,
-        [UiData(15537)] Slashing,
-        [UiData(15100)] Fire,
-        [UiData(15101)] Ice,
-        [UiData(15102)] Wind,
-        [UiData(15103)] Earth,
-        [UiData(15104)] Lightning,
-        [UiData(15105)] Water,
+        [UiData(16018, "Unaspected")] None = 1 << 0,
+        [UiData(15535)] Blunt = 1 << 1,
+        [UiData(15536)] Piercing = 1 << 2,
+        [UiData(15537)] Slashing = 1 << 3,
+        [UiData(15100)] Fire = 1 << 4,
+        [UiData(15101)] Ice = 1 << 5,
+        [UiData(15102)] Wind = 1 << 6,
+        [UiData(15103)] Earth = 1 << 7,
+        [UiData(15104)] Lightning = 1 << 8,
+        [UiData(15105)] Water = 1 << 9,
+        [UiData(-2, "Piercing/Fire", false)] PiercingFire = Piercing | Fire,
+        [UiData(-3, "Blunt/Earth", false)] BluntEarth = Blunt | Earth,
     }
 
     internal enum SpellEffect
     {
-        [UiData(72461)] Slow,
+        [UiData(72461, "Slow")] Slow,
         [UiData(72462, "Petrification/Freeze")] PetrificationAndFreeze,
-        [UiData(72463)] Paralysis,
-        [UiData(72464)] Interruption,
-        [UiData(72465)] Blind,
-        [UiData(72466)] Stun,
-        [UiData(72467)] Sleep,
-        [UiData(72468)] Bind,
-        [UiData(72469)] Heavy,
+        [UiData(72463, "Paralysis")] Paralysis,
+        [UiData(72464, "Interruption")] Interruption,
+        [UiData(72465, "Blind")] Blind,
+        [UiData(72466, "Stun")] Stun,
+        [UiData(72467, "Sleep")] Sleep,
+        [UiData(72468, "Bind")] Bind,
+        [UiData(72469, "Heavy")] Heavy,
         [UiData(72470, "Flat Damage/Death")] FlatDamageAndDeath,
     }
 
@@ -82,18 +87,19 @@ namespace BluDex
 
         public string Text { get; private set; }
 
-        public UiDataAttribute(int iconID) : this(iconID, null) { }
+        public bool IsFilterable { get; private set; }
 
-        public UiDataAttribute(string text) : this(0, text) { }
+        public UiDataAttribute(string text) : this(0, text, true) { }
 
-        public UiDataAttribute(int iconID, string text)
+        public UiDataAttribute(int iconID = 0, string text = null, bool isFilterable = true)
         {
             IconID = iconID;
             Text = text;
+            IsFilterable = isFilterable;
         }
     }
 
-    internal struct ActionData
+    internal class ActionData
     {
         public uint ActionID;
         public uint Number;
@@ -104,9 +110,11 @@ namespace BluDex
         public SpellRank Rank;
         public SpellTarget Target;
         public SpellType Type;
-        public SpellAspect[] Aspects;
+        public SpellAspect Aspect;
         public SpellEffect[] Effects;
         public SpellCast CastTime;
         public SpellRecast RecastTime;
+        public uint UnlockLink;
+        public bool IsUnlocked;
     }
 }

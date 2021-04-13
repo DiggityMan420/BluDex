@@ -1,7 +1,5 @@
 ﻿using Dalamud.Data.LuminaExtensions;
-using Dalamud.Game.Chat.SeStringHandling;
 using Dalamud.Interface;
-using Dalamud.Plugin;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using ImGuiNET;
 using ImGuiScene;
@@ -11,8 +9,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
-using System.Reflection;
-using System.Text;
 
 namespace BluDex
 {
@@ -26,6 +22,8 @@ namespace BluDex
 
             PopulateSpellFilter();
             LoadTextures();
+
+            LongestSpellNameNumber = plugin.ActionDataStorage.Select(action => ImGui.CalcTextSize($"#{action.Number}: {action.Name}").X).Max() * 1.1f;
 
             plugin.Interface.UiBuilder.OnOpenConfigUi += UiBuilder_OnOpenConfigUi;
             plugin.Interface.UiBuilder.OnBuildUi += UiBuilder_OnBuildUi;
@@ -53,13 +51,19 @@ namespace BluDex
         private void PopulateSpellFilter()
         {
             VisibleActions.AddRange(plugin.ActionDataStorage);
-            Enum.GetValues(typeof(SpellRank)).Cast<SpellRank>().ToList().ForEach(value => SpellFilter[value] = false);
-            Enum.GetValues(typeof(SpellType)).Cast<SpellType>().ToList().ForEach(value => SpellFilter[value] = false);
-            Enum.GetValues(typeof(SpellAspect)).Cast<SpellAspect>().ToList().ForEach(value => SpellFilter[value] = false);
-            Enum.GetValues(typeof(SpellEffect)).Cast<SpellEffect>().ToList().ForEach(value => SpellFilter[value] = false);
-            Enum.GetValues(typeof(SpellTarget)).Cast<SpellTarget>().ToList().ForEach(value => SpellFilter[value] = false);
-            Enum.GetValues(typeof(SpellCast)).Cast<SpellCast>().ToList().ForEach(value => SpellFilter[value] = false);
-            Enum.GetValues(typeof(SpellRecast)).Cast<SpellRecast>().ToList().ForEach(value => SpellFilter[value] = false);
+
+            void AddFilters<T>() where T : Enum =>
+                Enum.GetValues(typeof(T)).Cast<T>()
+                .Where(e => e.GetAttribute<UiDataAttribute>().IsFilterable)
+                .ToList().ForEach(value => SpellFilter[value] = false);
+
+            AddFilters<SpellRank>();
+            AddFilters<SpellType>();
+            AddFilters<SpellAspect>();
+            AddFilters<SpellEffect>();
+            AddFilters<SpellTarget>();
+            AddFilters<SpellCast>();
+            AddFilters<SpellRecast>();
         }
 
         private void LoadTextures()
@@ -86,7 +90,12 @@ namespace BluDex
                 LoadIcon(value.IconID);
 
             var assemblyDir = Path.GetDirectoryName(plugin.AssemblyLocation);
-            LoadImage(-1, $"{assemblyDir}/res/TargetCombined.png");
+            LoadImage(-1, $"{assemblyDir}/res/TargetSelfAllyEnemy.png");
+            LoadImage(-2, $"{assemblyDir}/res/AspectPiercingFire.png");
+            LoadImage(-3, $"{assemblyDir}/res/AspectBluntEarth.png");
+            LoadImage(-4, $"{assemblyDir}/res/AcquiredFromDungeons.png");
+            LoadImage(-5, $"{assemblyDir}/res/AcquiredFromOverworld.png");
+            LoadImage(-6, $"{assemblyDir}/res/AcquiredFromWhalaqee.png");
         }
 
         private TextureWrap GetTex(int id)
@@ -120,16 +129,19 @@ namespace BluDex
             TextureStorage[id] = plugin.Interface.UiBuilder.LoadImage(filePath);
         }
 
+        private const int LockedIconID = 60840;
         private const int MissingIconID = 60861;
         private const int ClearFilterIconID = 16005;
         private readonly ConcurrentDictionary<int, TextureWrap> TextureStorage = new();
         private readonly Dictionary<Enum, bool> SpellFilter = new();
         private List<ActionData> VisibleActions = new();
 
-        private readonly Vector2 FilterIconSize = new(24, 32);
-        private readonly Vector2 ActionIconSize = new(32, 32);
-        private readonly Vector4 FilterButtonBlue = ConvertRGBA(46, 91, 136, 255);
-        private readonly Vector4 FilterButtonBlueDisabled = ConvertRGBA(24, 46, 69, 255);
+        private readonly float LongestSpellNameNumber;
+        private readonly Vector2 EffectIconSize = new(30, 36);
+        private readonly Vector2 ActionIconSize = new(36, 36);
+        private readonly Vector4 FilterButtonBlue = ConvertRGBA(46, 91, 136);
+        private readonly Vector4 FilterButtonBlueDisabled = ConvertRGBA(24, 46, 69);
+        private readonly Vector4 LockedIconTint = ConvertRGBA(255, 50, 50);
 
         private readonly Vector4 TintEnabledColor = Vector4.One;
         private readonly Vector4 TintDisabledColor = new(.5f, .5f, .5f, 1);
@@ -169,8 +181,8 @@ namespace BluDex
             ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(2, -2));
             ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(4, 4));
 
-            var windowSizeX = FilterIconSize.X * 10 + style.ItemSpacing.X * 9 + style.WindowPadding.X * 2;
-            var windowSizeY = FilterIconSize.Y * 3 + style.ItemSpacing.Y * 4 + style.WindowPadding.Y * 2 + 2 + 50;
+            var windowSizeX = EffectIconSize.X * 10 + style.ItemSpacing.X * 9 + style.WindowPadding.X * 2;
+            var windowSizeY = EffectIconSize.Y * 3 + style.ItemSpacing.Y * 4 + style.WindowPadding.Y * 2 + 2 + 50;
             var windowSize = new Vector2(windowSizeX, windowSizeY);
 
             ImGui.BeginChild("FilterIcons", windowSize, true, ImGuiWindowFlags.NoScrollbar);
@@ -183,7 +195,7 @@ namespace BluDex
             FilterIconImageButtons<SpellType>();
 
             ImGui.SameLine();
-            FilterIconImageButtons(SpellTarget.SelfAllyOrEnemy);
+            FilterIconImageButtons<SpellTarget>();
 
             ImGui.SameLine();
             ClearFilterIconImageButton();
@@ -206,10 +218,10 @@ namespace BluDex
             return windowSizeX;
         }
 
-        private void FilterIconImageButtons<T>(params T[] skipValue) where T : Enum
+        private void FilterIconImageButtons<T>() where T : Enum
         {
             var values = Enum.GetValues(typeof(T)).Cast<T>()
-                .Where(value => !skipValue.Contains(value))
+                .Where(e => e.GetAttribute<UiDataAttribute>().IsFilterable)
                 .ToList();
             var last = values.Last();
 
@@ -234,7 +246,7 @@ namespace BluDex
             ImGui.PushStyleColor(ImGuiCol.ButtonHovered, Vector4.Zero);
             ImGui.PushStyleColor(ImGuiCol.ButtonActive, Vector4.Zero);
 
-            if (ImGui.ImageButton(tex.ImGuiHandle, FilterIconSize, Vector2.Zero, Vector2.One, 0, Vector4.Zero, tint))
+            if (ImGui.ImageButton(tex.ImGuiHandle, EffectIconSize, Vector2.Zero, Vector2.One, 0, Vector4.Zero, tint))
             {
                 SpellFilter[value] = !enabled;
                 RecalculateVisibleActions();
@@ -259,7 +271,7 @@ namespace BluDex
             //var positionX = ImGui.GetWindowWidth() - style.WindowPadding.X - FilterIconSize.X;
             //ImGui.SetCursorPosX(positionX);
 
-            if (ImGui.ImageButton(tex.ImGuiHandle, FilterIconSize, Vector2.Zero, Vector2.One, 0, Vector4.Zero, Vector4.One))
+            if (ImGui.ImageButton(tex.ImGuiHandle, EffectIconSize, Vector2.Zero, Vector2.One, 0, Vector4.Zero, Vector4.One))
             {
                 foreach (var key in SpellFilter.Keys)
                     SpellFilter[key] = false;
@@ -331,7 +343,7 @@ namespace BluDex
         {
             bool TypeIsSet<T>() where T : Enum => SpellFilter.Keys.OfType<T>().Count(key => SpellFilter[key]) > 0;
 
-            return TypeIsSet<SpellAspect>() && !SpellFilter.Keys.OfType<SpellAspect>().Any(aspect => action.Aspects.Contains(aspect) && SpellFilter[aspect]) ||
+            return TypeIsSet<SpellAspect>() && !SpellFilter.Keys.OfType<SpellAspect>().Any(aspect => action.Aspect.HasFlag(aspect) && SpellFilter[aspect]) ||
                    TypeIsSet<SpellEffect>() && !SpellFilter.Keys.OfType<SpellEffect>().Any(effect => action.Effects.Contains(effect) && SpellFilter[effect]) ||
                    TypeIsSet<SpellTarget>() && !SpellFilter.Keys.OfType<SpellTarget>().Any(target => action.Target.HasFlag(target) && SpellFilter[target]) ||
                    TypeIsSet<SpellType>() && !SpellFilter[action.Type] ||
@@ -342,7 +354,8 @@ namespace BluDex
 
         private void UiBuilder_DisplayActions(float windowSizeX)
         {
-            ImGui.BeginChild("ActionDataList", new(windowSizeX, -1), true);
+            // ImGui.BeginChild("ActionDataList", new(windowSizeX, -1), true);
+            ImGui.BeginChild("ActionDataList", new(500f, -1), true);
 
             foreach (var action in VisibleActions)
                 DisplayAction(action);
@@ -350,57 +363,90 @@ namespace BluDex
             ImGui.EndChild();
         }
 
+        public bool ShowEffects = true;
+
         private void DisplayAction(ActionData action)
         {
+            var style = ImGui.GetStyle();
+            var globalScale = ImGui.GetIO().FontGlobalScale;
+            var actionIconSize = ActionIconSize * globalScale;
+            var effectIconSize = EffectIconSize * globalScale;
+            var windowPadding = new Vector2(4f, 4f);
+            var childWidth =
+                windowPadding.X * 2
+                + actionIconSize.X
+                + (style.ItemSpacing.X * 2) // Image, text
+                + (LongestSpellNameNumber * globalScale)
+                + effectIconSize.X * 3;
+            var childHeight = actionIconSize.Y + windowPadding.Y * 2;
+
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, windowPadding);
+
+            ImGui.BeginChild($"{action.GetHashCode()}-action", new Vector2(childWidth, childHeight), true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
+
             ImGui.PushStyleColor(ImGuiCol.Button, Vector4.Zero);
             ImGui.PushStyleColor(ImGuiCol.ButtonHovered, Vector4.Zero);
             ImGui.PushStyleColor(ImGuiCol.ButtonActive, Vector4.Zero);
 
             var tex = GetTex(action.IconID);
-            if (ImGui.ImageButton(tex.ImGuiHandle, ActionIconSize, Vector2.Zero, Vector2.One, 0, Vector4.Zero, Vector4.One))
+            var cursorPos = ImGui.GetCursorPos();
+            if (ImGui.ImageButton(tex.ImGuiHandle, actionIconSize, Vector2.Zero, Vector2.One, 0, Vector4.Zero, Vector4.One)) { }
+
+            if (!action.IsUnlocked)
             {
+                ImGui.SetCursorPos(cursorPos);
+                var lockedTex = GetTex(LockedIconID);
+                ImGui.ImageButton(lockedTex.ImGuiHandle, actionIconSize, Vector2.Zero, Vector2.One, 0, Vector4.Zero, LockedIconTint);
             }
 
-            ImGui.PopStyleColor(3);
+            ImGui.PopStyleColor(1);  // Button
+            ImGui.PopStyleColor(1);  // ButtonHovered
+            ImGui.PopStyleColor(1);  // ButtonActive
 
-            ImGuiEx.WrappedTextTooltip(action.Description, 400);
+            //ImGuiEx.WrappedTextTooltip(action.Description, 400);
 
             ImGui.SameLine();
-            ImGui.Dummy(new(4, 0));
-            ImGui.SameLine();
+
+            cursorPos = ImGui.GetCursorPos();
+            cursorPos.X += (LongestSpellNameNumber + style.ItemSpacing.X) * globalScale;
 
             var rankText = action.Rank.GetAttribute<UiDataAttribute>().Text;
+
+            ImGui.SetWindowFontScale(globalScale * 1.1f);
             ImGui.Text($"#{action.Number}: {action.Name}\n{rankText}");
+            ImGui.SetWindowFontScale(globalScale);
 
             ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, Vector2.Zero);
 
-            var style = ImGui.GetStyle();
             var positionX = ImGui.GetWindowContentRegionWidth() + style.WindowPadding.X;
 
             void IconImage<T>(T value) where T : Enum
             {
-                var attr = value.GetAttribute<UiDataAttribute>();
-
                 ImGui.SameLine();
-                var tex = GetTex(attr.IconID);
 
-                positionX -= FilterIconSize.X;
+                var attr = value.GetAttribute<UiDataAttribute>();
+                var tooltipText = attr?.Text ?? value.ToString();
+
+                positionX -= effectIconSize.X;
                 ImGui.SetCursorPosX(positionX);
-                ImGui.Image(tex.ImGuiHandle, FilterIconSize);
 
-                var uiAttr = value.GetAttribute<UiDataAttribute>();
-                var tooltipText = uiAttr?.Text ?? value.ToString();
+                var tex = GetTex(attr.IconID);
+                ImGui.Image(tex.ImGuiHandle, effectIconSize, Vector2.Zero, new(1f, (float)(tex.Height - 4) / tex.Height));
                 ImGuiEx.TextTooltip(tooltipText);
             }
 
             // Backwards to insert from the right
             ImGui.SetCursorPosX(positionX);
-            action.Effects.ToList().ForEach(v => IconImage(v));
-            action.Aspects.ToList().ForEach(v => IconImage(v));
+            IconImage(action.Aspect);
             IconImage(action.Target);
             IconImage(action.Type);
+            //action.Effects.ToList().ForEach(v => IconImage(v));
 
-            ImGui.PopStyleVar();  // ItemSpacing
+            ImGui.PopStyleVar(1);  // ItemSpacing
+
+            ImGui.EndChild();
+
+            ImGui.PopStyleVar(1);  // FramePadding
         }
 
         private static uint ConvertRGBA(Vector4 col)
@@ -410,14 +456,6 @@ namespace BluDex
                    ((uint)(col.X * 255) << 8) +
                    ((uint)(col.W * 255));
         }
-        /*
-         ZYX = deep red
-         XYZ = brown
-         XZY = no
-         ZXY = no
-         YXZ = 
-         YZX = 
-         */
 
         private static Vector4 ConvertRGBA(int r, int g, int b, int a = 255) => new(r / 255f, g / 255f, b / 255f, a / 255f);
 
@@ -461,13 +499,6 @@ namespace BluDex
 
         private void UiBuilderDebugLuminaInspector()
         {
-            foreach (var data in plugin.ActionDataStorage)
-            {
-                var aspects = "[" + string.Join(", ", data.Aspects) + "]";
-                var effects = "[" + string.Join(", ", data.Effects) + "]";
-                ImGui.Text($"{data.ActionID} // #{data.Number} {data.Name} // {data.CastTime} // {data.RecastTime}");
-                ImGuiEx.TextTooltip(data.Fluff);
-            }
         }
 
         #endregion
